@@ -27,7 +27,7 @@
       </div>
       <form id="auth-form">
         <input type="text" id="auth-name" class="auth-input" placeholder="Ник или имя" required maxlength="40" autocomplete="username" />
-        <input type="password" id="auth-password"auth-password" class="auth-input" placeholder="Пароль (мин. 6 символов)" required minlength="6" autocomplete="current-password" />
+        <input type="password" id="auth-password" class="auth-input" placeholder="Пароль (мин. 6 символов)" required minlength="6" autocomplete="current-password" />
         <button type="submit" class="btn-primary btn-block" id="auth-submit">Войти</button>
       </form>
       <p id="auth-error" class="auth-error"></p>
@@ -66,18 +66,9 @@
           <p class="hero-desc">Контент-план, задачи, чат и кто сейчас в сети</p>
         </div>
         <div class="stats">
-          <div class="stat">
-            <div class="stat-num" id="stat-total">—</div>
-            <div class="stat-label">Посты</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num" id="stat-tasks">—</div>
-            <div class="stat-label">Задачи</div>
-          </div>
-          <div class="stat">
-            <div class="stat-num" id="stat-online">—</div>
-            <div class="stat-label">Онлайн</div>
-          </div>
+          <div class="stat"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Посты</div></div>
+          <div class="stat"><div class="stat-num" id="stat-tasks">—</div><div class="stat-label">Задачи</div></div>
+          <div class="stat"><div class="stat-num" id="stat-online">—</div><div class="stat-label">Онлайн</div></div>
         </div>
         <div id="sync-status" class="sync-status"></div>
       </section>
@@ -192,5 +183,6 @@
   <script src="config.js"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
+  <script src="chat.js"></script>
 </body>
 </html>
