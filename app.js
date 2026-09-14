@@ -7,9 +7,9 @@
     "Опубликовано": "badge-published"
   };
   const kindLabel = { post: "Пост", story: "Story", task: "Задача", idea: "Идея" };
+  const SESSION_KEY = "tvoyhod_session_v1";
 
   let supabase = null;
-  let user = null;
   let profile = null;
   let items = [];
   let activities = [];
@@ -20,52 +20,76 @@
   let presenceChannel = null;
   let authMode = "login";
 
-  // ---------- Init ----------
+  async function hashPassword(password) {
+    const data = new TextEncoder().encode("tvoyhod-samgtu-2026:" + password);
+    const buf = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(buf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  function normalizeNick(nick) {
+    return (nick || "").trim().toLowerCase().replace(/\s+/g, "_");
+  }
+
+  function saveSession(member) {
+    localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({
+        id: member.id,
+        nickname: member.nickname,
+        display_name: member.display_name,
+        role: member.role
+      })
+    );
+  }
+
+  function loadSession() {
+    try {
+      return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+
+  function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+  }
+
   async function init() {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      showAuthError("Заполни config.js (SUPABASE_URL и ключ), иначе вход и облако не работают.");
+      showAuthError("Не заполнен config.js — облако не подключено.");
       document.getElementById("auth-screen").classList.remove("hidden");
       return;
     }
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      await onLoggedIn(session.user);
-    } else {
-      document.getElementById("auth-screen").classList.remove("hidden");
-      document.getElementById("app").classList.add("hidden");
+    const session = loadSession();
+    if (session?.id) {
+      const { data } = await supabase.from("members").select("*").eq("id", session.id).maybeSingle();
+      if (data) {
+        await onLoggedIn(data);
+        return;
+      }
+      clearSession();
     }
-
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session?.user) {
-        await onLoggedIn(session.user);
-      }
-      if (event === "SIGNED_OUT") {
-        teardownPresence();
-        user = null;
-        profile = null;
-        document.getElementById("app").classList.add("hidden");
-        document.getElementById("auth-screen").classList.remove("hidden");
-      }
-    });
+    document.getElementById("auth-screen").classList.remove("hidden");
+    document.getElementById("app").classList.add("hidden");
   }
 
-  async function onLoggedIn(u) {
-    user = u;
-    // load or create profile
-    let { data: prof } = await supabase.from("profiles").select("*").eq("id", u.id).single();
-    if (!prof) {
-      const name = u.user_metadata?.name || u.email.split("@")[0];
-      await supabase.from("profiles").upsert({ id: u.id, name, role: "участник" });
-      ({ data: prof } = await supabase.from("profiles").select("*").eq("id", u.id).single());
-    }
-    profile = prof;
-    await supabase.from("profiles").update({ last_seen: new Date().toISOString() }).eq("id", u.id);
+  async function onLoggedIn(member) {
+    profile = {
+      id: member.id,
+      nickname: member.nickname,
+      display_name: member.display_name || member.nickname,
+      role: member.role || "участник"
+    };
+    saveSession(profile);
+    await supabase.from("members").update({ last_seen: new Date().toISOString() }).eq("id", profile.id);
 
     document.getElementById("auth-screen").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
-    document.getElementById("header-name").textContent = profile?.name || u.email;
+    document.getElementById("header-name").textContent = profile.display_name;
 
     setSyncStatus("В сети · данные в облаке", "ok");
     await loadItems();
@@ -79,31 +103,13 @@
     if (el) el.textContent = msg || "";
   }
 
-  // Ник → технический email для Supabase Auth (пользователь email не видит)
-  function nickToEmail(nick) {
-    let slug = (nick || "").toLowerCase().trim();
-    // если ввели почту целиком — берём только часть до @
-    if (slug.includes("@")) slug = slug.split("@")[0];
-    // только латиница, цифры, точка, подчёркивание, дефис
-    slug = slug
-      .replace(/\s+/g, "_")
-      .replace(/[а-яё]/g, (ch) => "u" + ch.charCodeAt(0).toString(16))
-      .replace(/[^a-z0-9._-]/g, "")
-      .replace(/[._-]{2,}/g, "_")
-      .replace(/^[._-]+|[._-]+$/g, "");
-    if (!slug || slug.length < 2) slug = "user" + Date.now().toString(36);
-    // .com проходит валидацию Supabase (домен не обязан существовать)
-    return slug + "@tvoyhod-samgtu.com";
-  }
-
-  // ---------- Auth UI ----------
   document.querySelectorAll(".auth-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".auth-tab").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       authMode = btn.dataset.auth;
-      document.getElementById("auth-submit").textContent = authMode === "register" ? "Создать аккаунт" : "Войти";
-      document.getElementById("auth-password").autocomplete = authMode === "register" ? "new-password" : "current-password";
+      document.getElementById("auth-submit").textContent =
+        authMode === "register" ? "Создать аккаунт" : "Войти";
       showAuthError("");
     });
   });
@@ -116,49 +122,76 @@
     if (!name) return showAuthError("Укажи ник или имя");
     if (password.length < 6) return showAuthError("Пароль не короче 6 символов");
 
-    const email = nickToEmail(name);
+    const nickname = normalizeNick(name);
+    if (nickname.length < 2) return showAuthError("Слишком короткий ник");
 
     try {
+      const password_hash = await hashPassword(password);
+
       if (authMode === "register") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { name } }
-        });
-        if (error) throw error;
-        if (data.user) {
-          await supabase.from("profiles").upsert({ id: data.user.id, name, role: "участник" });
-        }
-        // Сразу пробуем войти (если подтверждение email выключено — это обычный случай)
-        const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
-        if (loginErr) {
-          showAuthError("Аккаунт создан. Если не пустило — выключи Confirm email в Supabase → Authentication → Providers → Email.");
-        }
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: existing } = await supabase
+          .from("members")
+          .select("id")
+          .eq("nickname", nickname)
+          .maybeSingle();
+        if (existing) return showAuthError("Такой ник уже занят — выбери другой или войди");
+
+        const { data, error } = await supabase
+          .from("members")
+          .insert({
+            nickname,
+            password_hash,
+            display_name: name,
+            role: "участник"
+          })
+          .select()
+          .single();
+
         if (error) {
-          // возможно ник написали в другом регистре/пробелами — уже нормализовали
+          if (/relation .* does not exist/i.test(error.message)) {
+            return showAuthError("Таблица members не создана. Выполни supabase-setup.sql в SQL Editor.");
+          }
           throw error;
         }
+        await onLoggedIn(data);
+        await logActivity("зарегистрировался(ась) в платформе");
+      } else {
+        const { data, error } = await supabase
+          .from("members")
+          .select("*")
+          .eq("nickname", nickname)
+          .maybeSingle();
+        if (error) {
+          if (/relation .* does not exist/i.test(error.message)) {
+            return showAuthError("Таблица members не создана. Выполни supabase-setup.sql в SQL Editor.");
+          }
+          throw error;
+        }
+        if (!data || data.password_hash !== password_hash) {
+          return showAuthError("Неверный ник или пароль");
+        }
+        await onLoggedIn(data);
+        await logActivity("вошёл(а) в платформу");
       }
     } catch (err) {
-      let msg = err.message || "Ошибка входа";
-      if (/Invalid login credentials/i.test(msg)) msg = "Неверный ник или пароль";
-      if (/already registered/i.test(msg)) msg = "Такой ник уже занят — войди или выбери другой";
-      showAuthError(msg);
+      console.error(err);
+      showAuthError(err.message || "Ошибка входа");
     }
   });
 
-  document.getElementById("btn-logout").addEventListener("click", async () => {
-    await supabase.auth.signOut();
+  document.getElementById("btn-logout").addEventListener("click", () => {
+    teardownPresence();
+    clearSession();
+    profile = null;
+    document.getElementById("app").classList.add("hidden");
+    document.getElementById("auth-screen").classList.remove("hidden");
   });
 
-  // ---------- Presence (online) ----------
   function setupPresence() {
-    if (!supabase || !user) return;
+    if (!supabase || !profile) return;
     teardownPresence();
     presenceChannel = supabase.channel("team-presence", {
-      config: { presence: { key: user.id } }
+      config: { presence: { key: profile.id } }
     });
 
     presenceChannel
@@ -175,8 +208,8 @@
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           await presenceChannel.track({
-            user_id: user.id,
-            name: profile?.name || user.email,
+            user_id: profile.id,
+            name: profile.display_name,
             online_at: new Date().toISOString(),
             tab: currentTab
           });
@@ -193,10 +226,10 @@
   }
 
   async function updatePresenceTab() {
-    if (presenceChannel && user) {
+    if (presenceChannel && profile) {
       await presenceChannel.track({
-        user_id: user.id,
-        name: profile?.name || user.email,
+        user_id: profile.id,
+        name: profile.display_name,
         online_at: new Date().toISOString(),
         tab: currentTab
       });
@@ -211,27 +244,26 @@
       list.innerHTML = `<div class="empty-sm">Никого нет в сети</div>`;
       return;
     }
+    const tabMap = { posts: "Посты", stories: "Stories", tasks: "Задачи", ideas: "Идеи", team: "Команда" };
     list.innerHTML = users
-      .map((u) => {
-        const tabMap = { posts: "Посты", stories: "Stories", tasks: "Задачи", ideas: "Идеи", team: "Команда" };
-        return `
-          <div class="online-item">
-            <span class="online-dot"></span>
-            <div>
-              <div class="online-name">${escapeHtml(u.name)}</div>
-              <div class="online-meta">смотрит: ${tabMap[u.tab] || u.tab || "—"}</div>
-            </div>
-          </div>`;
-      })
+      .map(
+        (u) => `
+      <div class="online-item">
+        <span class="online-dot"></span>
+        <div>
+          <div class="online-name">${escapeHtml(u.name)}</div>
+          <div class="online-meta">смотрит: ${tabMap[u.tab] || u.tab || "—"}</div>
+        </div>
+      </div>`
+      )
       .join("");
   }
 
-  // ---------- Activity ----------
   async function logActivity(action, details = "") {
-    if (!supabase || !user) return;
+    if (!supabase || !profile) return;
     await supabase.from("activity_log").insert({
-      user_id: user.id,
-      user_name: profile?.name || user.email,
+      user_id: profile.id,
+      user_name: profile.display_name,
       action,
       details
     });
@@ -256,7 +288,10 @@
     list.innerHTML = activities
       .map((a) => {
         const time = new Date(a.created_at).toLocaleString("ru-RU", {
-          day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit"
+          day: "2-digit",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit"
         });
         return `
           <div class="activity-item">
@@ -271,13 +306,14 @@
       .join("");
   }
 
-  // ---------- Items CRUD ----------
   async function loadItems() {
-    const { data, error } = await supabase.from("content_items").select("*").order("date", { ascending: true });
+    const { data, error } = await supabase
+      .from("content_items")
+      .select("*")
+      .order("date", { ascending: true });
     if (error) {
       console.error(error);
-      setSyncStatus("Ошибка загрузки", "error");
-      // seed if empty table access works but no rows
+      setSyncStatus("Ошибка загрузки: " + error.message, "error");
       return;
     }
     if (!data || data.length === 0) {
@@ -300,16 +336,34 @@
   function seedData() {
     const result = [];
     if (typeof posts !== "undefined") {
-      posts.forEach((p) => result.push({
-        kind: "post", date: p.date, day: p.day, title: p.title, format: p.format,
-        status: p.status, notes: p.notes || "", textReady: p.textReady || "", author: ""
-      }));
+      posts.forEach((p) =>
+        result.push({
+          kind: "post",
+          date: p.date,
+          day: p.day,
+          title: p.title,
+          format: p.format,
+          status: p.status,
+          notes: p.notes || "",
+          textReady: p.textReady || "",
+          author: ""
+        })
+      );
     }
     if (typeof stories !== "undefined") {
-      stories.forEach((s) => result.push({
-        kind: "story", date: s.date, day: s.day, title: s.title, format: s.format,
-        status: s.status, notes: s.notes || "", textReady: "", author: ""
-      }));
+      stories.forEach((s) =>
+        result.push({
+          kind: "story",
+          date: s.date,
+          day: s.day,
+          title: s.title,
+          format: s.format,
+          status: s.status,
+          notes: s.notes || "",
+          textReady: "",
+          author: ""
+        })
+      );
     }
     return result;
   }
@@ -326,7 +380,7 @@
       notes: item.notes || "",
       text_ready: item.textReady || "",
       author: item.author || "",
-      author_id: item.author_id || user?.id || null
+      author_id: item.author_id || profile?.id || null
     };
   }
 
@@ -368,8 +422,8 @@
       await supabase.from("content_items").update(payload).eq("id", item.id);
       await logActivity("обновил(а) " + (kindLabel[item.kind] || "запись"), item.title);
     } else {
-      payload.author = profile?.name || "";
-      payload.author_id = user.id;
+      payload.author = profile?.display_name || "";
+      payload.author_id = profile?.id;
       const { data } = await supabase.from("content_items").insert(payload).select().single();
       if (data) item.id = data.id;
       await logActivity("добавил(а) " + (kindLabel[item.kind] || "запись"), item.title);
@@ -404,7 +458,6 @@
       .subscribe();
   }
 
-  // ---------- Render ----------
   function escapeHtml(str) {
     return String(str || "")
       .replace(/&/g, "&amp;")
@@ -453,10 +506,11 @@
     if (currentFilter !== "all") list = list.filter((i) => i.status === currentFilter);
     const q = (document.getElementById("search")?.value || "").toLowerCase().trim();
     if (q) {
-      list = list.filter((i) =>
-        i.title.toLowerCase().includes(q) ||
-        (i.notes || "").toLowerCase().includes(q) ||
-        (i.author || "").toLowerCase().includes(q)
+      list = list.filter(
+        (i) =>
+          i.title.toLowerCase().includes(q) ||
+          (i.notes || "").toLowerCase().includes(q) ||
+          (i.author || "").toLowerCase().includes(q)
       );
     }
     return list.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -469,18 +523,22 @@
       tasks: getFiltered("task"),
       ideas: getFiltered("idea")
     };
-    document.getElementById("posts-grid").innerHTML =
-      map.posts.length ? map.posts.map(createCard).join("") : `<div class="empty">Нет постов</div>`;
-    document.getElementById("stories-grid").innerHTML =
-      map.stories.length ? map.stories.map(createCard).join("") : `<div class="empty">Нет Stories</div>`;
-    document.getElementById("tasks-grid").innerHTML =
-      map.tasks.length ? map.tasks.map(createCard).join("") : `<div class="empty">Нет задач — добавь первую</div>`;
-    document.getElementById("ideas-grid").innerHTML =
-      map.ideas.length ? map.ideas.map(createCard).join("") : `<div class="empty">Нет идей — добавь первую</div>`;
+    document.getElementById("posts-grid").innerHTML = map.posts.length
+      ? map.posts.map(createCard).join("")
+      : `<div class="empty">Нет постов</div>`;
+    document.getElementById("stories-grid").innerHTML = map.stories.length
+      ? map.stories.map(createCard).join("")
+      : `<div class="empty">Нет Stories</div>`;
+    document.getElementById("tasks-grid").innerHTML = map.tasks.length
+      ? map.tasks.map(createCard).join("")
+      : `<div class="empty">Нет задач — добавь первую</div>`;
+    document.getElementById("ideas-grid").innerHTML = map.ideas.length
+      ? map.ideas.map(createCard).join("")
+      : `<div class="empty">Нет идей — добавь первую</div>`;
 
-    let posts = items.filter((i) => i.kind === "post");
-    if (currentMonth !== "all") posts = posts.filter((i) => getMonthKey(i.date) === currentMonth);
-    document.getElementById("stat-total").textContent = posts.length;
+    let postsCount = items.filter((i) => i.kind === "post");
+    if (currentMonth !== "all") postsCount = postsCount.filter((i) => getMonthKey(i.date) === currentMonth);
+    document.getElementById("stat-total").textContent = postsCount.length;
     document.getElementById("stat-tasks").textContent = items.filter((i) => i.kind === "task").length;
   }
 
@@ -492,10 +550,16 @@
     }
   }
 
-  // ---------- Modal ----------
   const modal = document.getElementById("modal");
   function openModal(item = null) {
-    const defaultType = currentTab === "stories" ? "story" : currentTab === "tasks" ? "task" : currentTab === "ideas" ? "idea" : "post";
+    const defaultType =
+      currentTab === "stories"
+        ? "story"
+        : currentTab === "tasks"
+          ? "task"
+          : currentTab === "ideas"
+            ? "idea"
+            : "post";
     document.getElementById("modal-title").textContent = item ? "Редактировать" : "Добавить";
     document.getElementById("form-id").value = item?.id || "";
     document.getElementById("form-type").value = item?.kind || defaultType;
@@ -506,7 +570,9 @@
     document.getElementById("form-notes").value = item?.notes || "";
     modal.classList.add("open");
   }
-  function closeModal() { modal.classList.remove("open"); }
+  function closeModal() {
+    modal.classList.remove("open");
+  }
 
   document.getElementById("item-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -521,8 +587,8 @@
       status: document.getElementById("form-status").value,
       notes: document.getElementById("form-notes").value.trim(),
       textReady: "",
-      author: profile?.name || "",
-      author_id: user?.id
+      author: profile?.display_name || "",
+      author_id: profile?.id
     };
     closeModal();
     await saveItem(item);
@@ -530,7 +596,9 @@
 
   document.getElementById("modal-close").onclick = closeModal;
   document.getElementById("btn-cancel").onclick = closeModal;
-  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
   document.getElementById("btn-add").onclick = () => openModal();
 
   document.body.addEventListener("click", async (e) => {
@@ -550,7 +618,6 @@
     if (btn.dataset.action === "delete") await deleteItem(id);
   });
 
-  // Tabs
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
