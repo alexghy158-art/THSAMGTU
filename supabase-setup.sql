@@ -61,3 +61,18 @@ create table if not exists activity_log (
 alter table activity_log enable row level security;
 drop policy if exists "activity_all" on activity_log;
 create policy "activity_all" on activity_log for all using (true) with check (true);
+
+-- 4. Командный чат
+create table if not exists chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid,
+  user_name text not null,
+  body text not null,
+  created_at timestamptz default now()
+);
+
+alter table chat_messages enable row level security;
+drop policy if exists "chat_all" on chat_messages;
+create policy "chat_all" on chat_messages for all using (true) with check (true);
+
+create index if not exists idx_chat_created on chat_messages(created_at);
