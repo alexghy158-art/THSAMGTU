@@ -13,7 +13,6 @@
 <body>
   <div class="bg-glow"></div>
 
-  <!-- AUTH SCREEN -->
   <div id="auth-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="logo auth-logo">
@@ -22,7 +21,7 @@
         <span class="logo-text">Ход</span>
       </div>
       <p class="auth-sub">Команда СамГТУ</p>
-      <div class="auth-tabs">
+      <div class="auth-="auth-tabs">
         <button type="button" class="auth-tab active" data-auth="login">Вход</button>
         <button type="button" class="auth-tab" data-auth="register">Регистрация</button>
       </div>
@@ -32,11 +31,10 @@
         <button type="submit" class="btn-primary btn-block" id="auth-submit">Войти</button>
       </form>
       <p id="auth-error" class="auth-error"></p>
-      <p class="auth-hint">Только ник и пароль (не вводи email). Пример ника: Sasha или alex. Пароль запомни — восстановить через почту нельзя.</p>
+      <p class="auth-hint">Ник + пароль. Без почты. Пример: sashka.</p>
     </div>
   </div>
 
-  <!-- APP -->
   <div id="app" class="hidden">
     <header class="header">
       <div class="container header-inner">
@@ -51,6 +49,7 @@
           <button class="nav-btn" data-tab="stories">Stories</button>
           <button class="nav-btn" data-tab="tasks">Задачи</button>
           <button class="nav-btn" data-tab="ideas">Идеи</button>
+          <button class="nav-btn" data-tab="chat">Чат</button>
           <button class="nav-btn" data-tab="team">Команда</button>
         </nav>
         <div class="header-user">
@@ -61,10 +60,10 @@
     </header>
 
     <main class="container">
-      <section class="hero compact">
+      <section class="hero compact" id="hero-block">
         <div class="hero-left">
           <h1><span class="gradient-text">Командная платформа</span></h1>
-          <p class="hero-desc">Контент-план, задачи, идеи и кто сейчас в сети</p>
+          <p class="hero-desc">Контент-план, задачи, чат и кто сейчас в сети</p>
         </div>
         <div class="stats">
           <div class="stat">
@@ -107,6 +106,23 @@
       <section class="tab-content" id="tab-stories"><div class="cards" id="stories-grid"></div></section>
       <section class="tab-content" id="tab-tasks"><div class="cards" id="tasks-grid"></div></section>
       <section class="tab-content" id="tab-ideas"><div class="cards" id="ideas-grid"></div></section>
+
+      <section class="tab-content" id="tab-chat">
+        <div class="chat-shell">
+          <div class="chat-header">
+            <div>
+              <h2 class="panel-title" style="margin:0">Командный чат</h2>
+              <p class="chat-sub">Обсуждайте задачи и контент в реальном времени</p>
+            </div>
+            <span id="chat-status" class="chat-status">подключение...</span>
+          </div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <form id="chat-form" class="chat-form">
+            <input type="text" id="chat-input" class="chat-input" placeholder="Написать сообщение..." maxlength="2000" autocomplete="off" />
+            <button type="submit" class="btn-primary">Отправить</button>
+          </form>
+        </div>
+      </section>
 
       <section class="tab-content" id="tab-team">
         <div class="team-layout">
