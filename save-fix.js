@@ -1,12 +1,8 @@
-/**
- * Надёжное сохранение: явные ошибки + уведомления
- * Подключается после app.js
- */
 (function () {
-  const SESSION_KEY = "tvoyhod_session_v1";
+  var SESSION_KEY = "tvoyhod_session_v1";
 
   function getProfile() {
-    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) { return null; }
   }
 
   function getClient() {
@@ -15,7 +11,7 @@
   }
 
   function toast(msg, isError) {
-    let el = document.getElementById("tvoyhod-toast");
+    var el = document.getElementById("tvoyhod-toast");
     if (!el) {
       el = document.createElement("div");
       el.id = "tvoyhod-toast";
@@ -31,22 +27,22 @@
     el.textContent = msg;
     el.style.opacity = "1";
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.opacity = "0"; }, 3500);
+    el._t = setTimeout(function () { el.style.opacity = "0"; }, 3500);
   }
 
   function getDay(iso) {
     if (!iso) return "";
-    const days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    var days = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
     return days[new Date(iso + "T12:00:00").getDay()];
   }
 
   async function persistItem(item, isUpdate) {
-    const client = getClient();
-    const profile = getProfile();
+    var client = getClient();
+    var profile = getProfile();
     if (!client) return toast("Нет подключения к облаку", true);
     if (!profile) return toast("Сначала войди в аккаунт", true);
 
-    const payload = {
+    var payload = {
       kind: item.kind,
       date: item.date || null,
       day: item.day || getDay(item.date),
@@ -54,21 +50,20 @@
       format: item.format || "",
       status: item.status || "Запланировано",
       notes: item.notes || "",
-      author: profile.display_name || profile.nickname || "",
-      author_id: profile.id
+      author: profile.display_name || profile.nickname || ""
     };
 
     try {
       if (isUpdate && item.id) {
-        const { error } = await client.from("content_items").update(payload).eq("id", item.id);
-        if (error) throw error;
-        toast("Сохранено ✓");
+        var up = await client.from("content_items").update(payload).eq("id", item.id);
+        if (up.error) throw up.error;
+        toast("Сохранено");
       } else {
-        const { error } = await client.from("content_items").insert(payload);
-        if (error) throw error;
-        toast("Добавлено ✓");
+        var ins = await client.from("content_items").insert(payload);
+        if (ins.error) throw ins.error;
+        toast("Добавлено");
       }
-      setTimeout(() => location.reload(), 700);
+      setTimeout(function () { location.reload(); }, 500);
     } catch (err) {
       console.error(err);
       toast("Ошибка: " + (err.message || err), true);
@@ -76,37 +71,45 @@
   }
 
   function bindForm() {
-    const form = document.getElementById("item-form");
+    var form = document.getElementById("item-form");
     if (!form || form.dataset.fixBound) return;
     form.dataset.fixBound = "1";
 
-    form.addEventListener("submit", async (e) => {
+    form.addEventListener("submit", async function (e) {
       e.preventDefault();
       e.stopImmediatePropagation();
 
-      const title = (document.getElementById("form-title")?.value || "").trim();
+      var titleEl = document.getElementById("form-title");
+      var title = (titleEl && titleEl.value || "").trim();
       if (!title) return toast("Укажи название", true);
 
-      const id = document.getElementById("form-id")?.value || "";
-      const date = document.getElementById("form-date")?.value || "";
-      const item = {
+      var idEl = document.getElementById("form-id");
+      var dateEl = document.getElementById("form-date");
+      var typeEl = document.getElementById("form-type");
+      var formatEl = document.getElementById("form-format");
+      var statusEl = document.getElementById("form-status");
+      var notesEl = document.getElementById("form-notes");
+
+      var id = (idEl && idEl.value) || "";
+      var date = (dateEl && dateEl.value) || "";
+      var item = {
         id: id || null,
-        kind: document.getElementById("form-type")?.value || "task",
-        date,
+        kind: (typeEl && typeEl.value) || "task",
+        date: date,
         day: getDay(date),
-        title,
-        format: (document.getElementById("form-format")?.value || "").trim(),
-        status: document.getElementById("form-status")?.value || "Запланировано",
-        notes: (document.getElementById("form-notes")?.value || "").trim()
+        title: title,
+        format: ((formatEl && formatEl.value) || "").trim(),
+        status: (statusEl && statusEl.value) || "Запланировано",
+        notes: ((notesEl && notesEl.value) || "").trim()
       };
 
-      document.getElementById("modal")?.classList.remove("open");
+      var modal = document.getElementById("modal");
+      if (modal) modal.classList.remove("open");
       await persistItem(item, !!id);
     }, true);
   }
 
   function start() { bindForm(); }
-
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", start);
   } else {
