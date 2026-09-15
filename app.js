@@ -65,7 +65,7 @@
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const session = loadSession();
-    if (session?.id) {
+    if (session && session.id) {
       const { data } = await supabase.from("members").select("*").eq("id", session.id).maybeSingle();
       if (data) {
         await onLoggedIn(data);
@@ -149,7 +149,7 @@
 
         if (error) {
           if (/relation .* does not exist/i.test(error.message)) {
-            return showAuthError("Таблица members не создана. Выполни supabase-setup.sql в SQL Editor.");
+            return showAuthError("Таблица members не создана");
           }
           throw error;
         }
@@ -163,7 +163,7 @@
           .maybeSingle();
         if (error) {
           if (/relation .* does not exist/i.test(error.message)) {
-            return showAuthError("Таблица members не создана. Выполни supabase-setup.sql в SQL Editor.");
+            return showAuthError("Таблица members не создана");
           }
           throw error;
         }
@@ -238,34 +238,40 @@
 
   function renderOnline() {
     const list = document.getElementById("online-list");
+    if (!list) return;
     const users = Object.values(onlineUsers);
-    document.getElementById("stat-online").textContent = users.length;
+    const onlineStat = document.getElementById("stat-online");
+    if (onlineStat) onlineStat.textContent = users.length;
     if (!users.length) {
-      list.innerHTML = `<div class="empty-sm">Никого нет в сети</div>`;
+      list.innerHTML = "<div class=\"empty-sm\">Никого нет в сети</div>";
       return;
     }
     const tabMap = { posts: "Посты", stories: "Stories", tasks: "Задачи", ideas: "Идеи", chat: "Чат", team: "Команда" };
     list.innerHTML = users
-      .map(
-        (u) => `
-      <div class="online-item">
-        <span class="online-dot"></span>
-        <div>
-          <div class="online-name">${escapeHtml(u.name)}</div>
-          <div class="online-meta">смотрит: ${tabMap[u.tab] || u.tab || "—"}</div>
-        </div>
-      </div>`
-      )
+      .map(function (u) {
+        return (
+          '<div class="online-item">' +
+          '<span class="online-dot"></span>' +
+          "<div>" +
+          '<div class="online-name">' +
+          escapeHtml(u.name) +
+          "</div>" +
+          '<div class="online-meta">смотрит: ' +
+          (tabMap[u.tab] || u.tab || "—") +
+          "</div></div></div>"
+        );
+      })
       .join("");
   }
 
-  async function logActivity(action, details = "") {
+  async function logActivity(action, details) {
     if (!supabase || !profile) return;
+    details = details || "";
     await supabase.from("activity_log").insert({
       user_id: profile.id,
       user_name: profile.display_name,
-      action,
-      details
+      action: action,
+      details: details
     });
   }
 
@@ -281,27 +287,29 @@
 
   function renderActivity() {
     const list = document.getElementById("activity-list");
+    if (!list) return;
     if (!activities.length) {
-      list.innerHTML = `<div class="empty-sm">Пока тихо</div>`;
+      list.innerHTML = "<div class=\"empty-sm\">Пока тихо</div>";
       return;
     }
     list.innerHTML = activities
-      .map((a) => {
+      .map(function (a) {
         const time = new Date(a.created_at).toLocaleString("ru-RU", {
           day: "2-digit",
           month: "short",
           hour: "2-digit",
           minute: "2-digit"
         });
-        return `
-          <div class="activity-item">
-            <div class="activity-main">
-              <strong>${escapeHtml(a.user_name || "Кто-то")}</strong>
-              ${escapeHtml(a.action)}
-              ${a.details ? `<span class="activity-details">«${escapeHtml(a.details)}»</span>` : ""}
-            </div>
-            <div class="activity-time">${time}</div>
-          </div>`;
+        return (
+          '<div class="activity-item"><div class="activity-main"><strong>' +
+          escapeHtml(a.user_name || "Кто-то") +
+          "</strong> " +
+          escapeHtml(a.action) +
+          (a.details ? " «" + escapeHtml(a.details) + "»" : "") +
+          '</div><div class="activity-time">' +
+          time +
+          "</div></div>"
+        );
       })
       .join("");
   }
@@ -328,15 +336,15 @@
 
   async function seedCloud() {
     const seed = seedData();
-    for (const item of seed) {
-      await supabase.from("content_items").insert(toDb(item));
+    for (var i = 0; i < seed.length; i++) {
+      await supabase.from("content_items").insert(toDb(seed[i]));
     }
   }
 
   function seedData() {
     const result = [];
     if (typeof posts !== "undefined") {
-      posts.forEach((p) =>
+      posts.forEach(function (p) {
         result.push({
           kind: "post",
           date: p.date,
@@ -347,11 +355,11 @@
           notes: p.notes || "",
           textReady: p.textReady || "",
           author: ""
-        })
-      );
+        });
+      });
     }
     if (typeof stories !== "undefined") {
-      stories.forEach((s) =>
+      stories.forEach(function (s) {
         result.push({
           kind: "story",
           date: s.date,
@@ -362,8 +370,8 @@
           notes: s.notes || "",
           textReady: "",
           author: ""
-        })
-      );
+        });
+      });
     }
     return result;
   }
@@ -379,7 +387,7 @@
       notes: item.notes || "",
       text_ready: item.textReady || "",
       author: item.author || "",
-      author_id: item.author_id || profile?.id || null
+      author_id: item.author_id || (profile && profile.id) || null
     };
   }
 
@@ -407,8 +415,8 @@
 
   function formatDate(iso) {
     if (!iso) return "";
-    const [y, m, d] = iso.split("-");
-    return `${d}.${m}`;
+    const parts = iso.split("-");
+    return parts[2] + "." + parts[1];
   }
 
   function getMonthKey(iso) {
@@ -423,8 +431,8 @@
         if (error) throw error;
         await logActivity("обновил(а) " + (kindLabel[item.kind] || "запись"), item.title);
       } else {
-        payload.author = profile?.display_name || "";
-        payload.author_id = profile?.id;
+        payload.author = (profile && profile.display_name) || "";
+        payload.author_id = profile && profile.id;
         const { data, error } = await supabase.from("content_items").insert(payload).select().single();
         if (error) throw error;
         if (data) item.id = data.id;
@@ -440,7 +448,7 @@
   }
 
   async function updateStatus(id, newStatus) {
-    const item = items.find((i) => i.id === id);
+    const item = items.find(function (i) { return i.id === id; });
     if (!item) return;
     try {
       const { error } = await supabase.from("content_items").update({ status: newStatus }).eq("id", id);
@@ -456,7 +464,7 @@
 
   async function deleteItem(id) {
     if (!confirm("Удалить?")) return;
-    const item = items.find((i) => i.id === id);
+    const item = items.find(function (i) { return i.id === id; });
     try {
       const { error } = await supabase.from("content_items").delete().eq("id", id);
       if (error) throw error;
@@ -472,67 +480,79 @@
   function subscribeRealtime() {
     supabase
       .channel("items-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "content_items" }, () => loadItems())
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, () => loadActivity())
+      .on("postgres_changes", { event: "*", schema: "public", table: "content_items" }, function () { loadItems(); })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, function () { loadActivity(); })
       .subscribe();
   }
 
   function escapeHtml(str) {
-    return String(str || "")
-      .replace(/&/g, "&")
-      .replace(/</g, "<")
-      .replace(/>/g, ">")
-      .replace(/"/g, """);
+    const d = document.createElement("div");
+    d.textContent = str == null ? "" : String(str);
+    return d.innerHTML;
   }
 
   function createCard(item) {
     const badge = statusClass[item.status] || "badge-planned";
     const author = item.author
-      ? `<div class="card-author">👤 ${escapeHtml(item.author)}</div>`
+      ? '<div class="card-author">👤 ' + escapeHtml(item.author) + "</div>"
       : "";
-    const notes = item.notes ? `<div class="card-notes">${escapeHtml(item.notes)}</div>` : "";
+    const notes = item.notes ? '<div class="card-notes">' + escapeHtml(item.notes) + "</div>" : "";
 
-    return `
-      <article class="card">
-        <div class="card-top">
-          <div class="card-date">
-            <span class="card-day">${item.day || ""}</span>
-            ${item.date ? " · " + formatDate(item.date) : ""}
-          </div>
-          <button class="badge ${badge} badge-clickable" data-action="cycle-status" data-id="${item.id}">
-            ${item.status}
-          </button>
-        </div>
-        <h3 class="card-title">${escapeHtml(item.title)}</h3>
-        <div class="card-meta">
-          <span class="tag">${kindLabel[item.kind] || item.kind}</span>
-          ${item.format ? `<span class="tag">${escapeHtml(item.format)}</span>` : ""}
-        </div>
-        ${author}
-        ${notes}
-        <div class="card-actions">
-          <button class="btn-text" data-action="edit" data-id="${item.id}">Изменить</button>
-          <button class="btn-text danger" data-action="delete" data-id="${item.id}">Удалить</button>
-        </div>
-      </article>`;
+    return (
+      '<article class="card">' +
+      '<div class="card-top">' +
+      '<div class="card-date">' +
+      '<span class="card-day">' +
+      (item.day || "") +
+      "</span>" +
+      (item.date ? " · " + formatDate(item.date) : "") +
+      "</div>" +
+      '<button class="badge ' +
+      badge +
+      ' badge-clickable" data-action="cycle-status" data-id="' +
+      item.id +
+      '">' +
+      item.status +
+      "</button></div>" +
+      '<h3 class="card-title">' +
+      escapeHtml(item.title) +
+      "</h3>" +
+      '<div class="card-meta">' +
+      '<span class="tag">' +
+      (kindLabel[item.kind] || item.kind) +
+      "</span>" +
+      (item.format ? '<span class="tag">' + escapeHtml(item.format) + "</span>" : "") +
+      "</div>" +
+      author +
+      notes +
+      '<div class="card-actions">' +
+      '<button class="btn-text" data-action="edit" data-id="' +
+      item.id +
+      '">Изменить</button>' +
+      '<button class="btn-text danger" data-action="delete" data-id="' +
+      item.id +
+      '">Удалить</button>' +
+      "</div></article>"
+    );
   }
 
   function getFiltered(kind) {
-    let list = items.filter((i) => i.kind === kind);
+    let list = items.filter(function (i) { return i.kind === kind; });
     if (currentMonth !== "all" && (kind === "post" || kind === "story")) {
-      list = list.filter((i) => getMonthKey(i.date) === currentMonth);
+      list = list.filter(function (i) { return getMonthKey(i.date) === currentMonth; });
     }
-    if (currentFilter !== "all") list = list.filter((i) => i.status === currentFilter);
-    const q = (document.getElementById("search")?.value || "").toLowerCase().trim();
+    if (currentFilter !== "all") list = list.filter(function (i) { return i.status === currentFilter; });
+    const q = ((document.getElementById("search") && document.getElementById("search").value) || "").toLowerCase().trim();
     if (q) {
-      list = list.filter(
-        (i) =>
-          i.title.toLowerCase().includes(q) ||
-          (i.notes || "").toLowerCase().includes(q) ||
-          (i.author || "").toLowerCase().includes(q)
-      );
+      list = list.filter(function (i) {
+        return (
+          i.title.toLowerCase().indexOf(q) !== -1 ||
+          (i.notes || "").toLowerCase().indexOf(q) !== -1 ||
+          (i.author || "").toLowerCase().indexOf(q) !== -1
+        );
+      });
     }
-    return list.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    return list.sort(function (a, b) { return (a.date || "").localeCompare(b.date || ""); });
   }
 
   function renderAll() {
@@ -542,23 +562,21 @@
       tasks: getFiltered("task"),
       ideas: getFiltered("idea")
     };
-    document.getElementById("posts-grid").innerHTML = map.posts.length
-      ? map.posts.map(createCard).join("")
-      : `<div class="empty">Нет постов</div>`;
-    document.getElementById("stories-grid").innerHTML = map.stories.length
-      ? map.stories.map(createCard).join("")
-      : `<div class="empty">Нет Stories</div>`;
-    document.getElementById("tasks-grid").innerHTML = map.tasks.length
-      ? map.tasks.map(createCard).join("")
-      : `<div class="empty">Нет задач — добавь первую</div>`;
-    document.getElementById("ideas-grid").innerHTML = map.ideas.length
-      ? map.ideas.map(createCard).join("")
-      : `<div class="empty">Нет идей — добавь первую</div>`;
+    const pg = document.getElementById("posts-grid");
+    const sg = document.getElementById("stories-grid");
+    const tg = document.getElementById("tasks-grid");
+    const ig = document.getElementById("ideas-grid");
+    if (pg) pg.innerHTML = map.posts.length ? map.posts.map(createCard).join("") : '<div class="empty">Нет постов</div>';
+    if (sg) sg.innerHTML = map.stories.length ? map.stories.map(createCard).join("") : '<div class="empty">Нет Stories</div>';
+    if (tg) tg.innerHTML = map.tasks.length ? map.tasks.map(createCard).join("") : '<div class="empty">Нет задач — добавь первую</div>';
+    if (ig) ig.innerHTML = map.ideas.length ? map.ideas.map(createCard).join("") : '<div class="empty">Нет идей — добавь первую</div>';
 
-    let postsCount = items.filter((i) => i.kind === "post");
-    if (currentMonth !== "all") postsCount = postsCount.filter((i) => getMonthKey(i.date) === currentMonth);
-    document.getElementById("stat-total").textContent = postsCount.length;
-    document.getElementById("stat-tasks").textContent = items.filter((i) => i.kind === "task").length;
+    let postsCount = items.filter(function (i) { return i.kind === "post"; });
+    if (currentMonth !== "all") postsCount = postsCount.filter(function (i) { return getMonthKey(i.date) === currentMonth; });
+    const st = document.getElementById("stat-total");
+    const sk = document.getElementById("stat-tasks");
+    if (st) st.textContent = postsCount.length;
+    if (sk) sk.textContent = items.filter(function (i) { return i.kind === "task"; }).length;
   }
 
   function setSyncStatus(text, type) {
@@ -570,7 +588,8 @@
   }
 
   const modal = document.getElementById("modal");
-  function openModal(item = null) {
+  function openModal(item) {
+    item = item || null;
     const defaultType =
       currentTab === "stories"
         ? "story"
@@ -580,20 +599,20 @@
             ? "idea"
             : "post";
     document.getElementById("modal-title").textContent = item ? "Редактировать" : "Добавить";
-    document.getElementById("form-id").value = item?.id || "";
-    document.getElementById("form-type").value = item?.kind || defaultType;
-    document.getElementById("form-date").value = item?.date || new Date().toISOString().slice(0, 10);
-    document.getElementById("form-title").value = item?.title || "";
-    document.getElementById("form-format").value = item?.format || "";
-    document.getElementById("form-status").value = item?.status || "Запланировано";
-    document.getElementById("form-notes").value = item?.notes || "";
+    document.getElementById("form-id").value = (item && item.id) || "";
+    document.getElementById("form-type").value = (item && item.kind) || defaultType;
+    document.getElementById("form-date").value = (item && item.date) || new Date().toISOString().slice(0, 10);
+    document.getElementById("form-title").value = (item && item.title) || "";
+    document.getElementById("form-format").value = (item && item.format) || "";
+    document.getElementById("form-status").value = (item && item.status) || "Запланировано";
+    document.getElementById("form-notes").value = (item && item.notes) || "";
     modal.classList.add("open");
   }
   function closeModal() {
     modal.classList.remove("open");
   }
 
-  document.getElementById("item-form").addEventListener("submit", async (e) => {
+  document.getElementById("item-form").addEventListener("submit", async function (e) {
     e.preventDefault();
     const id = document.getElementById("form-id").value || null;
     const item = {
@@ -606,8 +625,8 @@
       status: document.getElementById("form-status").value,
       notes: document.getElementById("form-notes").value.trim(),
       textReady: "",
-      author: profile?.display_name || "",
-      author_id: profile?.id
+      author: (profile && profile.display_name) || "",
+      author_id: profile && profile.id
     };
     closeModal();
     await saveItem(item);
@@ -615,34 +634,34 @@
 
   document.getElementById("modal-close").onclick = closeModal;
   document.getElementById("btn-cancel").onclick = closeModal;
-  modal.addEventListener("click", (e) => {
+  modal.addEventListener("click", function (e) {
     if (e.target === modal) closeModal();
   });
-  document.getElementById("btn-add").onclick = () => openModal();
+  document.getElementById("btn-add").onclick = function () { openModal(); };
 
-  document.body.addEventListener("click", async (e) => {
+  document.body.addEventListener("click", async function (e) {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
     const id = btn.dataset.id;
     if (btn.dataset.action === "cycle-status") {
-      const item = items.find((i) => i.id === id);
+      const item = items.find(function (i) { return i.id === id; });
       if (!item) return;
       const idx = STATUS_CYCLE.indexOf(item.status);
       await updateStatus(id, STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length]);
     }
     if (btn.dataset.action === "edit") {
-      const item = items.find((i) => i.id === id);
+      const item = items.find(function (i) { return i.id === id; });
       if (item) openModal(item);
     }
     if (btn.dataset.action === "delete") await deleteItem(id);
   });
 
-  document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
+  document.querySelectorAll(".nav-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".nav-btn").forEach(function (b) { b.classList.remove("active"); });
       btn.classList.add("active");
       currentTab = btn.dataset.tab;
-      document.querySelectorAll(".tab-content").forEach((el) => el.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(function (el) { el.classList.remove("active"); });
       const tabEl = document.getElementById("tab-" + currentTab);
       if (tabEl) tabEl.classList.add("active");
       const showFilters = currentTab !== "team" && currentTab !== "chat";
@@ -659,25 +678,25 @@
     });
   });
 
-  document.querySelectorAll(".month-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".month-btn").forEach((b) => b.classList.remove("active"));
+  document.querySelectorAll(".month-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".month-btn").forEach(function (b) { b.classList.remove("active"); });
       btn.classList.add("active");
       currentMonth = btn.dataset.month;
       renderAll();
     });
   });
 
-  document.querySelectorAll(".filter-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+  document.querySelectorAll(".filter-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".filter-btn").forEach(function (b) { b.classList.remove("active"); });
       btn.classList.add("active");
       currentFilter = btn.dataset.filter;
       renderAll();
     });
   });
 
-  document.getElementById("search").addEventListener("input", () => renderAll());
+  document.getElementById("search").addEventListener("input", function () { renderAll(); });
 
   init();
 })();
