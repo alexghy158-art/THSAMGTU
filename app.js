@@ -58,7 +58,7 @@
 
   async function init() {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      showAuthError("Не заполнен config.js — облако не подключено.");
+      showAuthError("Не заполнен config.js");
       document.getElementById("auth-screen").classList.remove("hidden");
       return;
     }
@@ -134,7 +134,7 @@
           .select("id")
           .eq("nickname", nickname)
           .maybeSingle();
-        if (existing) return showAuthError("Такой ник уже занят — выбери другой или войди");
+        if (existing) return showAuthError("Такой ник уже занят");
 
         const { data, error } = await supabase
           .from("members")
@@ -147,12 +147,7 @@
           .select()
           .single();
 
-        if (error) {
-          if (/relation .* does not exist/i.test(error.message)) {
-            return showAuthError("Таблица members не создана");
-          }
-          throw error;
-        }
+        if (error) throw error;
         await onLoggedIn(data);
         await logActivity("зарегистрировался(ась) в платформе");
       } else {
@@ -161,12 +156,7 @@
           .select("*")
           .eq("nickname", nickname)
           .maybeSingle();
-        if (error) {
-          if (/relation .* does not exist/i.test(error.message)) {
-            return showAuthError("Таблица members не создана");
-          }
-          throw error;
-        }
+        if (error) throw error;
         if (!data || data.password_hash !== password_hash) {
           return showAuthError("Неверный ник или пароль");
         }
@@ -386,8 +376,7 @@
       status: item.status,
       notes: item.notes || "",
       text_ready: item.textReady || "",
-      author: item.author || "",
-      author_id: item.author_id || (profile && profile.id) || null
+      author: item.author || (profile && profile.display_name) || ""
     };
   }
 
@@ -402,8 +391,7 @@
       status: row.status,
       notes: row.notes || "",
       textReady: row.text_ready || "",
-      author: row.author || "",
-      author_id: row.author_id
+      author: row.author || ""
     };
   }
 
@@ -432,7 +420,6 @@
         await logActivity("обновил(а) " + (kindLabel[item.kind] || "запись"), item.title);
       } else {
         payload.author = (profile && profile.display_name) || "";
-        payload.author_id = profile && profile.id;
         const { data, error } = await supabase.from("content_items").insert(payload).select().single();
         if (error) throw error;
         if (data) item.id = data.id;
@@ -625,8 +612,7 @@
       status: document.getElementById("form-status").value,
       notes: document.getElementById("form-notes").value.trim(),
       textReady: "",
-      author: (profile && profile.display_name) || "",
-      author_id: profile && profile.id
+      author: (profile && profile.display_name) || ""
     };
     closeModal();
     await saveItem(item);
